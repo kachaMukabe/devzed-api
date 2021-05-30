@@ -1,0 +1,62 @@
+scalar Point
+scalar DateTime
+scalar PointInput
+
+type Developer {
+  developerId: ID! @id
+  name: String
+  email: String!
+  languages: [Language] @relationship(type: "DEVELOPS_IN", direction: OUT)
+  numProjects: Int
+    @cypher(
+      statement: "MATCH (this)-[:DEVELOPED]->(p:Project) RETURN COUNT(p)"
+	 )
+  projects: [Project] @relationship(type: "DEVELOPED", direction: OUT)
+}
+
+type Language {
+  languageId: ID! @id
+  name: String!
+  developers: [Developer] @relationship(type: "DEVELOPS_IN", direction: IN)
+}
+
+type Project {
+  projectId: ID! @id
+  name: String
+  description: String
+  url: String
+  developers: [Developer] @relationship(type:"DEVELOPED", direction: IN)
+}
+
+type Mutation {
+  addLanguage(email: String!, language_name: String!): String
+	  @cypher(
+		  statement: """
+		  MATCH(d:Developer {email: $email})
+		  MATCH(l:Language {name: $language_name})
+		  CREATE (d)-[rel:DEVELOPS_IN]->(l)
+		  """
+		 )
+  mergeDeveloper(name: String, email: String!, developerId: ID!):Developer
+	@cypher(
+	   statement: """
+	   MERGE(d:Developer {developerId: $developerId})
+	   ON CREATE SET d.name = $name,
+	   		 d.email = $email
+	   RETURN d
+	   """
+	  )
+  mergeLanguage(name: String!, langID: ID!): Language
+	@cypher(
+	statement: """
+	MERGE(l:Language {langID: $langID})
+	ON CREATE SET l.name = $name
+	RETURN l
+	"""
+	    )
+}
+
+type Query {
+  devCount: Int! @cypher(statement: "MATCH (d:Developer) RETURN COUNT(d)")
+  getDeveloper(id: ID!): Developer @cypher(statement: "MATCH (d:Developer{developerId: $id}) RETURN d")
+}
