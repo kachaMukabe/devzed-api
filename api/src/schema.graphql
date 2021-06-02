@@ -6,6 +6,7 @@ type Developer {
   developerId: ID! @id
   name: String
   email: String!
+  password: String! @private
   languages: [Language] @relationship(type: "DEVELOPS_IN", direction: OUT)
   numProjects: Int
     @cypher(
@@ -28,7 +29,13 @@ type Project {
   developers: [Developer] @relationship(type:"DEVELOPED", direction: IN)
 }
 
+type AuthToken @exclude {
+  token: String!
+}
+
 type Mutation {
+  signup(email: String!, password: String!): AuthToken
+  login(email: String!, password: String!): AuthToken
   addLanguage(email: String!, language_name: String!): String
 	  @cypher(
 		  statement: """
@@ -59,4 +66,11 @@ type Mutation {
 type Query {
   devCount: Int! @cypher(statement: "MATCH (d:Developer) RETURN COUNT(d)")
   getDeveloper(id: ID!): Developer @cypher(statement: "MATCH (d:Developer{developerId: $id}) RETURN d")
+  currentUser: Developer
+  @cypher(
+	  statement: """
+	  MATCH(d:Developer {developerId: $auth.jwt.id})
+	  RETURN d
+	  """
+	 )
 }

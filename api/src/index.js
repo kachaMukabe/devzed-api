@@ -3,7 +3,11 @@ import { ApolloServer } from 'apollo-server-express'
 import express from 'express'
 import neo4j from 'neo4j-driver'
 import { Neo4jGraphQL } from '@neo4j/graphql'
+import { OGM } from '@neo4j/graphql-ogm'
 import dotenv from 'dotenv'
+
+import jwt from 'jsonwebtoken'
+import { compareSync, hashSync } from 'bcrypt'
 
 // set environment variables from .env
 dotenv.config()
@@ -20,8 +24,72 @@ const driver = neo4j.driver(
   neo4j.auth.basic(
     process.env.NEO4J_USER || 'neo4j',
     process.env.NEO4J_PASSWORD || 'neo4j'
-  )
+  ),
+	{
+		encrypted: process.env.NEO4J_ENCRYPTED ? 'ENCRYPTION_ON' : 'ENCRYPTION_OFF',
+	}
 )
+
+
+const ogm = new OGM({
+	typeDefs,
+	driver,
+})
+
+const Developer = ogm.model('Developer')
+
+
+const resolvers = {
+	Query: {
+		currentUser(obj, args, context, info){
+			return context.auth.jwt
+		}
+	},
+	Mutation: {
+		signup: (obj, args, context, info) => {
+			args.password = hashSync(args.password, 10)
+
+			const session = context.driver.session()
+
+			return session
+				.run(
+					`
+					CREATE (d:Developer) SET d += $args, d.developerId = randomUUID()
+					return d
+					`,
+					{args}
+				).then((res) => {
+					session.close()
+					const {developerId, email } = res.records[0].get('d').properties
+
+					return {
+						token: jwt.sign({developerId, email }, process.env.JWT_SECRET, {
+							expiresIn: '10d',
+						}),
+					}
+				})
+		},
+
+		login: async (obj, {email, password}) => {
+			const [developer] = await Developer.find({where: {email: email}})
+
+			const {developerId} = developer 
+			if (!compareSync(password, developer.password)) {
+				throw new Error("Authorization Error")
+			}
+
+			return {
+				token: jwt.sign(
+				{developerId, email},
+				process.env.JWT_SECRET,
+				{
+					expiresIn: '10d',
+				}
+				)
+			}
+		},
+	},
+}
 
 /*
  * Create an executable GraphQL schema object from GraphQL type definitions
@@ -30,7 +98,11 @@ const driver = neo4j.driver(
  * https://neo4j.com/docs/graphql-manual/current/
  */
 
-const neoSchema = new Neo4jGraphQL({ typeDefs, driver })
+const neoSchema = new Neo4jGraphQL({ typeDefs, resolvers, driver, config: {
+	jwt: {
+		secret: process.env.JWT_SECRET,
+	},
+}, })
 
 /*
  * Create a new ApolloServer instance, serving the GraphQL schema
@@ -39,10 +111,16 @@ const neoSchema = new Neo4jGraphQL({ typeDefs, driver })
  * generated resolvers to connect to the database.
  */
 const server = new ApolloServer({
-  context: {
-    driver,
-    driverConfig: { database: process.env.NEO4J_DATABASE || 'neo4j' },
-  },
+  //context: {
+    //driver,
+    //driverConfig: { database: process.env.NEO4J_DATABASE || 'neo4j' },
+  //},
+	context: ({req}) => {
+		return {
+			req,
+			driver
+		}
+	},
   schema: neoSchema.schema,
   introspection: true,
   playground: true,
