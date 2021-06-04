@@ -6,6 +6,8 @@ type Developer {
   developerId: ID! @id
   name: String
   email: String!
+  githubusername: String
+  description: String
   password: String! @private
   languages: [Language] @relationship(type: "DEVELOPS_IN", direction: OUT)
   numProjects: Int
